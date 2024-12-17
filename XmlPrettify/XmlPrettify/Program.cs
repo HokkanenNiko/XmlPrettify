@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Connections;
 using Radzen;
 using XmlPrettify.Client.Pages;
 using XmlPrettify.Components;
@@ -16,6 +17,11 @@ namespace XmlPrettify
                 .AddInteractiveWebAssemblyComponents();
                 
             builder.Services.AddRadzenComponents();
+            builder.Services.AddSignalR(o =>
+            {
+                o.EnableDetailedErrors = true;
+                o.MaximumReceiveMessageSize = 1024 * 1024;
+            });
 
             var app = builder.Build();
 
