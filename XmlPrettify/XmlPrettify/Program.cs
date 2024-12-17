@@ -1,3 +1,4 @@
+using Radzen;
 using XmlPrettify.Client.Pages;
 using XmlPrettify.Components;
 
@@ -13,6 +14,8 @@ namespace XmlPrettify
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents()
                 .AddInteractiveWebAssemblyComponents();
+                
+            builder.Services.AddRadzenComponents();
 
             var app = builder.Build();
 
