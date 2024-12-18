@@ -1,0 +1,151 @@
+﻿@page "/"
+@using System.Xml
+@using System.Xml.Linq
+@using static System.Xml.Formatting
+@using Radzen.Blazor
+@using System.Text
+@rendermode InteractiveServer
+@inject IJSRuntime JSRuntime
+
+<section>
+    <h1 style="font-size:x-large; font-weight:bold; color: #004085;">XML Formatter and Validator</h1>
+    <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content, select formatting options, and view the results instantly.</p>
+        <hr style="border: none; border-top: 1px solid #111; margin: 1rem 0;" />
+
+    <RadzenTemplateForm TItem="object">
+        <div style="margin-bottom: 1rem;">
+            <RadzenLabel Text="Input XML" />
+            <RadzenTextArea ValueChanged="ValueChangedHandler" Rows="10" Style="width: 100%;" Placeholder="Paste your XML here..." />
+        </div>
+
+        <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
+        <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+            <RadzenCheckBox @bind-Value="EnableFormattingOptions" Style="margin-right: 0.5rem;" />
+            <label>Format XML</label>
+        </div>
+
+        @if (EnableFormattingOptions)
+        {
+            <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center;">
+                    <RadzenCheckBox @bind-Value="PrettyPrint" Style="margin-right: 0.5rem;" />
+                    <label>Pretty Print</label>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <RadzenCheckBox @bind-Value="OmitXmlDeclaration" Style="margin-right: 0.5rem;" />
+                    <label>Omit XML Declaration</label>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <RadzenCheckBox @bind-Value="NewLineOnAttributes" Style="margin-right: 0.5rem;" />
+                    <label>New Line on Attributes</label>
+                </div>
+            </div>
+        }
+        <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
+
+        <RadzenButton Text="@(EnableFormattingOptions ? "Validate and Format" : "Validate")" Click="@FormatXml" Style="margin-right: 1rem;" />
+
+        <div style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <div style="flex-grow: 1;">
+                <RadzenLabel Text="Output" />
+                <RadzenTextArea @bind-Value="OutputXml" Rows="10" Disabled="true" Style="width: 100%; background-color: #f9f9f9; color: #000;" />
+            </div>
+            <RadzenButton Icon="content_copy" Tooltip="Copy to Clipboard" Click="CopyToClipboard" Style="padding: 0.5rem; font-size: 1rem;" />
+        </div>
+        <div id="copyNotification" style="opacity: 0; transition: opacity 0.5s; font-size: 0.9rem; color: green; margin-top: 0.5rem;">Copied to clipboard!</div>
+    </RadzenTemplateForm>
+</section>
+@code {
+    private string InputXml { get; set; } = string.Empty;
+    private string OutputXml { get; set; } = string.Empty;
+    private bool EnableFormattingOptions { get; set; } = false;
+    private bool PrettyPrint { get; set; } = true; // Default formatting option
+    private bool OmitXmlDeclaration { get; set; } = false;
+    private bool NewLineOnAttributes { get; set; } = false;
+
+    private void ValueChangedHandler(string newValue)
+    {
+        try
+        {
+            InputXml = newValue;
+        }
+        catch (Exception e)
+        {
+            ShowPopup($"Error: {e.Message}");
+        }
+    }
+
+    private void FormatXml()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(InputXml))
+            {
+                OutputXml = "Input XML cannot be empty.";
+                return;
+            }
+
+            // Always validate input XML
+            var xmlDocument = new XmlDocument();
+            xmlDocument.LoadXml(InputXml); // Throws exception if invalid XML
+
+            // Default to input text if no formatting options are enabled
+            if (!EnableFormattingOptions)
+            {
+                OutputXml = xmlDocument.OuterXml; // Ensures validated output
+                return;
+            }
+
+            var settings = new XmlWriterSettings
+                {
+                    Indent = PrettyPrint,
+                    IndentChars = "  ",
+                    NewLineOnAttributes = NewLineOnAttributes,
+                    OmitXmlDeclaration = OmitXmlDeclaration,
+                    Encoding = new System.Text.UTF8Encoding(false) // Preserve UTF-8 encoding without BOM
+                };
+
+            using (var stringWriter = new StringWriterWithEncoding(new System.Text.UTF8Encoding(false)))
+            using (var xmlWriter = XmlWriter.Create(stringWriter, settings))
+            {
+                xmlDocument.Save(xmlWriter);
+                OutputXml = stringWriter.ToString();
+            }
+        }
+        catch (XmlException ex)
+        {
+            OutputXml = $"XML Validation Error: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            OutputXml = $"Error: {ex.Message}";
+        }
+    }
+
+    private async void CopyToClipboard()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", OutputXml);
+        ShowCopyNotification();
+    }
+
+    private async void ShowCopyNotification()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('copyNotification').style.opacity = '1'; setTimeout(() => document.getElementById('copyNotification').style.opacity = '0', 1500);");
+    }
+
+    private async void ShowPopup(string message)
+    {
+        await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+
+    // Custom StringWriter to enforce encoding
+    public class StringWriterWithEncoding : StringWriter
+    {
+        private readonly Encoding _encoding;
+        public StringWriterWithEncoding(Encoding encoding)
+        {
+            _encoding = encoding;
+        }
+        public override Encoding Encoding => _encoding;
+    }
+}
