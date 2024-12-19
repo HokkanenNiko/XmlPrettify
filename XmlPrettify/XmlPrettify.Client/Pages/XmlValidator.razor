@@ -43,8 +43,10 @@
         }
         <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
 
-        <RadzenButton Text="@(EnableFormattingOptions ? "Validate and Format" : "Validate")" Click="@FormatXml" Style="margin-right: 1rem;" />
-
+        <div style="display: flex; align-items: center;">
+            <RadzenButton Text="@(EnableFormattingOptions ? "Validate and Format" : "Validate")" Click="@FormatXml" Style="margin-right: 1rem;" />
+            <div id="validationNotification" style="opacity: 0; transition: opacity 0.5s; font-size: 0.9rem; color: green; margin-top: 0.5rem;">Valid XML!</div>
+        </div>
         <div style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem;">
             <div style="flex-grow: 1;">
                 <RadzenLabel Text="Output" />
@@ -59,7 +61,7 @@
     private string InputXml { get; set; } = string.Empty;
     private string OutputXml { get; set; } = string.Empty;
     private bool EnableFormattingOptions { get; set; } = false;
-    private bool PrettyPrint { get; set; } = true; // Default formatting option
+    private bool PrettyPrint { get; set; } = true;
     private bool OmitXmlDeclaration { get; set; } = false;
     private bool NewLineOnAttributes { get; set; } = false;
 
@@ -85,14 +87,24 @@
                 return;
             }
 
-            // Always validate input XML
             var xmlDocument = new XmlDocument();
-            xmlDocument.LoadXml(InputXml); // Throws exception if invalid XML
 
-            // Default to input text if no formatting options are enabled
+            try
+            {
+                xmlDocument.LoadXml(InputXml);
+            }
+            catch (Exception e)
+            {
+                ShowInfoNotification("Invalid XML!", error: true);
+                OutputXml = $"XML Validation Error: {e.Message}";
+                return;
+            }
+
+            ShowInfoNotification("Valid XML!", error:false);
+
             if (!EnableFormattingOptions)
             {
-                OutputXml = xmlDocument.OuterXml; // Ensures validated output
+                OutputXml = InputXml;
                 return;
             }
 
@@ -102,7 +114,7 @@
                     IndentChars = "  ",
                     NewLineOnAttributes = NewLineOnAttributes,
                     OmitXmlDeclaration = OmitXmlDeclaration,
-                    Encoding = new System.Text.UTF8Encoding(false) // Preserve UTF-8 encoding without BOM
+                    Encoding = new System.Text.UTF8Encoding(false)
                 };
 
             using (var stringWriter = new StringWriterWithEncoding(new System.Text.UTF8Encoding(false)))
@@ -136,6 +148,14 @@
     private async void ShowPopup(string message)
     {
         await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+
+    private async void ShowInfoNotification(string message, bool error)
+    {
+        if (error)
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('validationNotification').style.color = 'red'; document.getElementById('validationNotification').textContent = 'Invalid XML!'; document.getElementById('validationNotification').style.opacity = '1'; setTimeout(() => document.getElementById('validationNotification').style.opacity = '0', 2000); ");
+        else
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('validationNotification').style.color = 'green'; document.getElementById('validationNotification').textContent = 'Valid XML!'; document.getElementById('validationNotification').style.opacity = '1'; setTimeout(() => document.getElementById('validationNotification').style.opacity = '0', 2000);");
     }
 
     // Custom StringWriter to enforce encoding
