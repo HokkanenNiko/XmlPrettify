@@ -20,7 +20,7 @@ namespace XmlPrettify
             builder.Services.AddSignalR(o =>
             {
                 o.EnableDetailedErrors = true;
-                o.MaximumReceiveMessageSize = 1024 * 1024;
+                o.MaximumReceiveMessageSize = 8192 * 1024;
             });
 
             var app = builder.Build();

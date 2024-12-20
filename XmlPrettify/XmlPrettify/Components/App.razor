@@ -20,6 +20,22 @@
           "applicationCategory": "Developer Tools"
         }
     </script>
+    <script>
+        let dotNetObjectReference;
+
+        function registerDotNetObject(objRef) {
+            dotNetObjectReference = objRef;
+        }
+
+        async function handleFileDrop(event) {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file) {
+                const text = await file.text();
+                dotNetObjectReference.invokeMethodAsync('HandleFileDrop', text);
+            }
+        }
+    </script>
     <meta name="google-adsense-account" content="ca-pub-8316836543955335">
     <meta property="og:title" content="Free Online XML Formatter and Validator">
     <meta property="og:description" content="Validate and beautify your XML content online. Simple, fast, and free.">

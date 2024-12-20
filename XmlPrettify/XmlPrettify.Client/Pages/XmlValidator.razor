@@ -4,20 +4,41 @@
 @using static System.Xml.Formatting
 @using Radzen.Blazor
 @using System.Text
+@using System.Text.Json
 @rendermode InteractiveServer
 @inject IJSRuntime JSRuntime
+@inject Radzen.NotificationService NotificationService
 
 <section>
     <h1 style="font-size:x-large; font-weight:bold; color: #004085;">XML Formatter and Validator</h1>
-    <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content, select formatting options, and view the results instantly.</p>
-        <hr style="border: none; border-top: 1px solid #111; margin: 1rem 0;" />
+    <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content or upload a file, select formatting options, and view the results instantly.</p>
+    <hr style="border: none; border-top: 1px solid #111; margin: 1rem 0;" />
 
     <RadzenTemplateForm TItem="object">
         <div style="margin-bottom: 1rem;">
             <RadzenLabel Text="Input XML" />
-            <RadzenTextArea ValueChanged="ValueChangedHandler" Rows="10" Style="width: 100%;" Placeholder="Paste your XML here..." />
+            <RadzenTextArea ValueChanged="ValueChangedHandler" Value=@InputXml Rows="10" Style="width: 100%;" Placeholder="Paste your XML here or select a file..." />
         </div>
 
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div style="width: 10%; text-align: left;">
+                <label for="input" class="input-label">Select file</label>
+                <InputFile id="input" class="sr-only" OnChange="HandleFileSelected" />
+                <RadzenNotification @ref="notification" />
+            </div>
+            <div id="dragAndDropElement" style="border: 2px dashed #ccc; padding: 1rem; text-align: center; background-color: #f9f9f9; width: 90%;"
+                 ondragover="event.preventDefault();"
+                 ondrop="handleFileDrop(event)">
+                @DRAG_AND_DROP_INSTRUCTION_DEFAULT
+            </div>
+        </div>
+
+@*         <RadzenCard>
+            <label for="input" class="input-label">Select file</label>
+            <InputFile id="input" class="sr-only" OnChange="HandleFileSelected" />
+            <RadzenNotification @ref="notification" />
+        </RadzenCard>
+ *@
         <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
         <div style="display: flex; align-items: center; margin-bottom: 1rem;">
             <RadzenCheckBox @bind-Value="EnableFormattingOptions" Style="margin-right: 0.5rem;" />
@@ -58,12 +79,39 @@
     </RadzenTemplateForm>
 </section>
 @code {
+    private bool isFileSelected = false;
+    private IBrowserFile? selectedFile;
+    private RadzenNotification? notification;
+
     private string InputXml { get; set; } = string.Empty;
     private string OutputXml { get; set; } = string.Empty;
     private bool EnableFormattingOptions { get; set; } = false;
     private bool PrettyPrint { get; set; } = true;
     private bool OmitXmlDeclaration { get; set; } = false;
     private bool NewLineOnAttributes { get; set; } = false;
+
+    public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drag and drop your XML file here";
+    public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
+
+    private DotNetObjectReference<XmlValidator>? objectReference;
+
+    protected override void OnInitialized()
+    {
+        objectReference = DotNetObjectReference.Create(this);
+    }
+
+    public void Dispose()
+    {
+        objectReference?.Dispose();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("registerDotNetObject", objectReference);
+        }
+    }
 
     private void ValueChangedHandler(string newValue)
     {
@@ -100,7 +148,7 @@
                 return;
             }
 
-            ShowInfoNotification("Valid XML!", error:false);
+            ShowInfoNotification("Valid XML!", error: false);
 
             if (!EnableFormattingOptions)
             {
@@ -158,7 +206,6 @@
             await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('validationNotification').style.color = 'green'; document.getElementById('validationNotification').textContent = 'Valid XML!'; document.getElementById('validationNotification').style.opacity = '1'; setTimeout(() => document.getElementById('validationNotification').style.opacity = '0', 2000);");
     }
 
-    // Custom StringWriter to enforce encoding
     public class StringWriterWithEncoding : StringWriter
     {
         private readonly Encoding _encoding;
@@ -167,5 +214,53 @@
             _encoding = encoding;
         }
         public override Encoding Encoding => _encoding;
+    }
+
+    [JSInvokable]
+    public async Task HandleFileDrop(string fileContents)
+    {
+        try
+        {
+            InputXml = fileContents;
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('dragAndDropElement').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('dragAndDropElement').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
+            StateHasChanged();
+
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error",
+                Detail = $"Failed to read file: {ex.Message}"
+            });
+        }
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        if (e.File is not null)
+        {
+            try
+            {
+                var fileContentStream = new StreamContent(e.File.OpenReadStream());
+                var fileContents = await fileContentStream.ReadAsStringAsync();
+                InputXml = fileContents;
+            }
+            catch (Exception ex)
+            {
+                NotificationService.Notify(new NotificationMessage
+                    {
+                        Severity = NotificationSeverity.Error,
+                        Summary = "Error",
+                        Detail = $"Exception: {ex.Message}"
+                    });
+            }
+        }
+    }
+
+    private class FileUpload
+    {
+        public Stream Stream { get; set; } = default!;
     }
 }

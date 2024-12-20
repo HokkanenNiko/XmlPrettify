@@ -49,3 +49,29 @@ h1:focus {
 .darker-border-checkbox.form-check-input {
     border-color: #929292;
 }
+
+.sr-only {
+    sr-only position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+.input-label {
+    padding: 6px 13px 6px 13px;
+    background-color: #4340D2;
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: box-shadow 0.1s ease;
+    box-shadow: 1px 1px 1px rgba(36,36,36,0.5);
+}
+
+.input-label:hover {
+    box-shadow: 0px 3px 3px rgba(36,36,36,0.5);
+}
