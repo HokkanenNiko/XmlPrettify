@@ -9,6 +9,11 @@
 @inject IJSRuntime JSRuntime
 @inject Radzen.NotificationService NotificationService
 
+<HeadContent>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8316836543955335"
+            crossorigin="anonymous"></script>
+</HeadContent>
+
 <section>
     <h1 style="font-size:x-large; font-weight:bold; color: #004085;">XML Formatter and Validator</h1>
     <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content or upload a file, select formatting options, and view the results instantly.</p>
@@ -21,15 +26,16 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <div style="width: 10%; text-align: left;">
-                <label for="input" class="input-label">Select file</label>
-                <InputFile id="input" class="sr-only" OnChange="HandleFileSelected" />
-                <RadzenNotification @ref="notification" />
-            </div>
-            <div id="dragAndDropElement" style="border: 2px dashed #ccc; padding: 1rem; text-align: center; background-color: #f9f9f9; width: 90%;"
+            <div id="dragAndDropElement" style="border: 2px dashed #ccc; color: gray; border-radius: 4px; padding: 1rem; align-items:center; text-align: center; background-color: #f9f9f9; width: 100%;"
                  ondragover="event.preventDefault();"
                  ondrop="handleFileDrop(event)">
-                @DRAG_AND_DROP_INSTRUCTION_DEFAULT
+                <div id="fileInputContainer" style="width: 100%; align-content:center; align-items:center; text-align: center;">
+                    <div id="fileInputContainerInstruction">
+                        @DRAG_AND_DROP_INSTRUCTION_DEFAULT
+                    </div>
+                    <label for="input" class="input-label" >Select file</label>
+                    <InputFile id="input" class="sr-only" OnChange="HandleFileSelected" />
+                </div>
             </div>
         </div>
 
@@ -84,7 +90,7 @@
     private bool OmitXmlDeclaration { get; set; } = false;
     private bool NewLineOnAttributes { get; set; } = false;
 
-    public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drag and drop your XML file here";
+    public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drop your XML file here OR";
     public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
 
     private DotNetObjectReference<XmlValidator>? objectReference;
@@ -216,7 +222,7 @@
         try
         {
             InputXml = fileContents;
-            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('dragAndDropElement').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('dragAndDropElement').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
 
         }
