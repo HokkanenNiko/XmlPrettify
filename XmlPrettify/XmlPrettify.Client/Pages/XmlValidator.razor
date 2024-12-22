@@ -13,7 +13,6 @@
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8316836543955335"
             crossorigin="anonymous"></script>
 </HeadContent>
-
 <section>
     <h1 style="font-size:x-large; font-weight:bold; color: #004085;">XML Formatter and Validator</h1>
     <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content or upload a file, select formatting options, and view the results instantly.</p>
@@ -22,7 +21,10 @@
     <RadzenTemplateForm TItem="object">
         <div style="margin-bottom: 1rem;">
             <RadzenLabel Text="Input XML" />
-            <RadzenTextArea ValueChanged="ValueChangedHandler" Value=@InputXml Rows="10" Style="width: 100%;" Placeholder="Paste your XML here or select a file..." />
+            <div style="border: 1px solid #ccc; border-radius: 3px; padding: 3px; height: 300px;">
+                <StandaloneCodeEditor @ref="codeEditor" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
+            </div>
+
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -44,7 +46,7 @@
             <RadzenCheckBox @bind-Value="EnableFormattingOptions" Style="margin-right: 0.5rem;" />
             <label>Format XML</label>
         </div>
-
+        
         @if (EnableFormattingOptions)
         {
             <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
@@ -70,20 +72,27 @@
         </div>
         <div style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem;">
             <div style="flex-grow: 1;">
+
                 <RadzenLabel Text="Output" />
+
                 <RadzenTextArea @bind-Value="OutputXml" Rows="10" Disabled="true" Style="width: 100%; background-color: #f9f9f9; color: #000;" />
             </div>
             <RadzenButton Icon="content_copy" Tooltip="Copy to Clipboard" Click="CopyToClipboard" Style="padding: 0.5rem; font-size: 1rem;" />
         </div>
         <div id="copyNotification" style="opacity: 0; transition: opacity 0.5s; font-size: 0.9rem; color: green; margin-top: 0.5rem;">Copied to clipboard!</div>
+
+
     </RadzenTemplateForm>
+
 </section>
+
 @code {
     private bool isFileSelected = false;
     private IBrowserFile? selectedFile;
     private RadzenNotification? notification;
 
-    private string InputXml { get; set; } = string.Empty;
+    private string inputXml = string.Empty;
+    private string InputXml { get => inputXml; set { inputXml = value; codeEditor?.SetValue(InputXml); } }
     private string OutputXml { get; set; } = string.Empty;
     private bool EnableFormattingOptions { get; set; } = false;
     private bool PrettyPrint { get; set; } = true;
@@ -93,11 +102,24 @@
     public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drop your XML file here OR";
     public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
 
+    private StandaloneCodeEditor? codeEditor;
     private DotNetObjectReference<XmlValidator>? objectReference;
+
+
+    private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
+    {
+        return new StandaloneEditorConstructionOptions
+            {
+                AutomaticLayout = true,
+                Language = "xml",
+                Value = InputXml
+            };
+    }
 
     protected override void OnInitialized()
     {
         objectReference = DotNetObjectReference.Create(this);
+        codeEditor = new StandaloneCodeEditor();
     }
 
     public void Dispose()
@@ -111,24 +133,14 @@
         {
             await JSRuntime.InvokeVoidAsync("registerDotNetObject", objectReference);
         }
+
     }
 
-    private void ValueChangedHandler(string newValue)
+    private async Task FormatXml()
     {
         try
         {
-            InputXml = newValue;
-        }
-        catch (Exception e)
-        {
-            ShowPopup($"Error: {e.Message}");
-        }
-    }
-
-    private void FormatXml()
-    {
-        try
-        {
+            InputXml = await codeEditor?.GetValue();
             if (string.IsNullOrWhiteSpace(InputXml))
             {
                 OutputXml = "Input XML cannot be empty.";
@@ -155,22 +167,25 @@
                 OutputXml = InputXml;
                 return;
             }
-
-            var settings = new XmlWriterSettings
-                {
-                    Indent = PrettyPrint,
-                    IndentChars = "  ",
-                    NewLineOnAttributes = NewLineOnAttributes,
-                    OmitXmlDeclaration = OmitXmlDeclaration,
-                    Encoding = new System.Text.UTF8Encoding(false)
-                };
-
-            using (var stringWriter = new StringWriterWithEncoding(new System.Text.UTF8Encoding(false)))
-            using (var xmlWriter = XmlWriter.Create(stringWriter, settings))
+            else
             {
-                xmlDocument.Save(xmlWriter);
-                OutputXml = stringWriter.ToString();
+                var settings = new XmlWriterSettings
+                    {
+                        Indent = PrettyPrint,
+                        IndentChars = "  ",
+                        NewLineOnAttributes = NewLineOnAttributes,
+                        OmitXmlDeclaration = OmitXmlDeclaration,
+                        Encoding = new System.Text.UTF8Encoding(false)
+                    };
+
+                using (var stringWriter = new StringWriterWithEncoding(new System.Text.UTF8Encoding(false)))
+                using (var xmlWriter = XmlWriter.Create(stringWriter, settings))
+                {
+                    xmlDocument.Save(xmlWriter);
+                    OutputXml = stringWriter.ToString();
+                }
             }
+
         }
         catch (XmlException ex)
         {
@@ -221,7 +236,7 @@
     {
         try
         {
-            InputXml = fileContents;
+            await codeEditor?.SetValue(fileContents);
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
 
@@ -245,7 +260,7 @@
             {
                 var fileContentStream = new StreamContent(e.File.OpenReadStream());
                 var fileContents = await fileContentStream.ReadAsStringAsync();
-                InputXml = fileContents;
+                await codeEditor?.SetValue(fileContents);
             }
             catch (Exception ex)
             {

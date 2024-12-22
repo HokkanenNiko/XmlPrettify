@@ -19,6 +19,7 @@ RUN dotnet build "./XmlPrettify.csproj" -c $BUILD_CONFIGURATION -o /app/build
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
 RUN dotnet add package Radzen.Blazor
+RUN dotnet add package BlazorMonaco
 RUN dotnet publish "./XmlPrettify.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
