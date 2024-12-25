@@ -39,6 +39,15 @@
             }
         }
 
+        async function handleXsdFileDrop(event) {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file) {
+                const text = await file.text();
+                dotNetObjectReference.invokeMethodAsync('HandleXsdFileDrop', text);
+            }
+        }
+
     </script>
     <meta name="google-adsense-account" content="ca-pub-8316836543955335">
     <meta property="og:title" content="Free Online XML Formatter and Validator">
