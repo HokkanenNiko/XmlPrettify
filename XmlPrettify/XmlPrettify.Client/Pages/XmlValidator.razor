@@ -6,6 +6,7 @@
 @using System.Text
 @using System.Text.Json
 @using System.Xml.Schema
+@using XmlPrettify.Client.Models
 @using XmlPrettify.Components.Models;
 @rendermode InteractiveServer
 @inject IJSRuntime JSRuntime
@@ -26,6 +27,7 @@
             <div style="border: 1px solid #ccc; border-radius: 3px; padding: 3px; height: 300px;">
                 <StandaloneCodeEditor @ref="codeEditor" OnKeyUp="KeyUpEventHandler" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
             </div>
+            <RadzenText @ref="ErrorDescriptionComponent" style="color: red" Text="@ErrorDescription"></RadzenText>
 
         </div>
 
@@ -49,19 +51,26 @@
                  ondrop="handleXsdFileDrop(event)">
                 <div id="xsdFileInputContainer" style="width: 100%; align-content:center; align-items:center; text-align: center;">
                     <div id="xsdFileInputContainerInstruction">
-                        @DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT
+                        @if (xmlSchema == null)
+                        {
+                            @DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT
+                        }
+                        else
+                        {
+                            @DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED
+                        }
+
                     </div>
                     <label for="input-xsd" class="input-label">Select file</label>
                     <InputFile id="input-xsd" class="sr-only" OnChange="HandleXsdFileSelected" />
+                    @if (xmlSchema != null)
+                    {
+                        <label for="clear_schema" class="input-label">Clear XSD</label>
+                        <button id="clear_schema" class="sr-only" @onclick=ClearXmlSchema />
+                    }
                 </div>
             </div>
         </div>
-
-        @if (xmlSchema != null)
-        {
-            <div>@xmlSchemaFileName: Loaded</div>
-            <RadzenButton Text="Clear XSD" Click="@ClearXmlSchema"></RadzenButton>
-        }
 
         <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
         <div style="display: flex; align-items: center; margin-bottom: 1rem;">
@@ -97,7 +106,6 @@
 
                 <div>
                     <RadzenLabel Text="Output" />
-                    <RadzenText @ref="ErrorDescriptionComponent" style="color: red" Text="@ErrorDescription"></RadzenText>
                 </div>
 
                 <RadzenTextArea @bind-Value="OutputXml" Rows="10" Disabled="true" Style="width: 100%; background-color: #f9f9f9; color: #000;" />
@@ -121,7 +129,7 @@
     private RadzenNotification? notification;
 
     private string inputXml = string.Empty;
-    private string InputXml { get => inputXml; set { inputXml = value; codeEditor?.SetValue(InputXml); } }
+    private string InputXml { get => inputXml; set { inputXml = value; SetCodeEditorValue(InputXml); } }
     private string OutputXml { get; set; } = string.Empty;
     private bool EnableFormattingOptions { get; set; } = false;
     private bool PrettyPrint { get; set; } = true;
@@ -129,6 +137,7 @@
     private bool NewLineOnAttributes { get; set; } = false;
 
     public const string DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT = "Drop your XSD file here if you want to use it for validation OR";
+    public string DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED => $"Selected XSD: {xmlSchemaFileName}";
 
     public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drop your XML file here OR";
     public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
@@ -157,7 +166,7 @@
         objectReference = DotNetObjectReference.Create(this);
         codeEditor = new StandaloneCodeEditor();
         ErrorDescriptionComponent = new RadzenText();
-        validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 2000);
+        validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 1000);
     }
 
     public void Dispose()
@@ -389,9 +398,7 @@
         try
         {
             await HandleXmlSchemaSet(fileContents, fileName);
-            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('xsdFileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('xsdFileInputContainerInstruction').textContent = '{DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
-
         }
         catch (Exception ex)
         {
@@ -404,12 +411,18 @@
         }
     }
 
+    private async Task SetCodeEditorValue(string fileContents)
+    {
+        await codeEditor?.SetValue(fileContents);
+        validateSingleAction.PerformAction();
+    }
+
     [JSInvokable]
     public async Task HandleFileDrop(string fileContents, string fileName)
     {
         try
         {
-            await codeEditor?.SetValue(fileContents);
+            await SetCodeEditorValue(fileContents);
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
 
@@ -460,12 +473,14 @@
         var schema = XmlSchema.Read(stream, XsdValidationEventHandler);
         xmlSchema = schema;
         xmlSchemaFileName = fileName;
+        validateSingleAction.PerformAction();
     }
 
     private void ClearXmlSchema()
     {
         xmlSchema = null;
         xmlSchemaFileName = null;
+        validateSingleAction.PerformAction();
     }
 
     private void XsdValidationEventHandler(object sender, ValidationEventArgs e)
@@ -478,9 +493,11 @@
         {
             try
             {
-                var fileContentStream = new StreamContent(e.File.OpenReadStream());
+                int maxFileSize = 1024 * 8192;
+
+                var fileContentStream = new StreamContent(e.File.OpenReadStream(maxFileSize));
                 var fileContents = await fileContentStream.ReadAsStringAsync();
-                await codeEditor?.SetValue(fileContents ?? string.Empty);
+                await SetCodeEditorValue(fileContents);
             }
             catch (Exception ex)
             {
@@ -497,37 +514,5 @@
     private class FileUpload
     {
         public Stream Stream { get; set; } = default!;
-    }
-    public class DelayedSingleAction
-    {
-        private readonly Action _action;
-        private readonly long _millisecondsDelay;
-        private long _syncValue = 1;
-        public DelayedSingleAction(Action action, long millisecondsDelay)
-        {
-            _action = action;
-            _millisecondsDelay = millisecondsDelay;
-        }
-
-        private Task _waitingTask = null;
-        private void DoActionAndClearTask(Task _)
-        {
-            Interlocked.Exchange(ref _syncValue, 1);
-            _action();
-        }
-
-        public void PerformAction()
-        {
-            if (Interlocked.Exchange(ref _syncValue, 0) == 1)
-            {
-                _waitingTask = Task.Delay(TimeSpan.FromMilliseconds(_millisecondsDelay))
-                                   .ContinueWith(DoActionAndClearTask);
-            }
-        }
-
-        public Task Complete()
-        {
-            return _waitingTask ?? Task.FromResult(0);
-        }
     }
 }
