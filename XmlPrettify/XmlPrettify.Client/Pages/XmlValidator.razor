@@ -24,7 +24,7 @@
         <div style="margin-bottom: 1rem;">
             <RadzenLabel Text="Input XML" />
             <div style="border: 1px solid #ccc; border-radius: 3px; padding: 3px; height: 300px;">
-                <StandaloneCodeEditor @ref="codeEditor" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
+                <StandaloneCodeEditor @ref="codeEditor" OnKeyUp="KeyUpEventHandler" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
             </div>
 
         </div>
@@ -59,8 +59,7 @@
 
         @if (xmlSchema != null)
         {
-            <div>@xmlSchema.Id</div>
-            <div>schema loaded.</div>
+            <div>@xmlSchemaFileName: Loaded</div>
             <RadzenButton Text="Clear XSD" Click="@ClearXmlSchema"></RadzenButton>
         }
 
@@ -96,7 +95,10 @@
         <div style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem;">
             <div style="flex-grow: 1;">
 
-                <RadzenLabel Text="Output" />
+                <div>
+                    <RadzenLabel Text="Output" />
+                    <RadzenText @ref="ErrorDescriptionComponent" style="color: red" Text="@ErrorDescription"></RadzenText>
+                </div>
 
                 <RadzenTextArea @bind-Value="OutputXml" Rows="10" Disabled="true" Style="width: 100%; background-color: #f9f9f9; color: #000;" />
             </div>
@@ -131,9 +133,12 @@
     public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drop your XML file here OR";
     public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
 
+    public string errorDescription = string.Empty;
+    public string ErrorDescription { get { return errorDescription; } set { errorDescription = value; InvokeAsync(() => StateHasChanged()); } }
+
     private StandaloneCodeEditor? codeEditor;
     private DotNetObjectReference<XmlValidator>? objectReference;
-
+    private RadzenText ErrorDescriptionComponent;
 
     private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
     {
@@ -145,10 +150,14 @@
             };
     }
 
+    DelayedSingleAction validateSingleAction;
+
     protected override void OnInitialized()
     {
         objectReference = DotNetObjectReference.Create(this);
         codeEditor = new StandaloneCodeEditor();
+        ErrorDescriptionComponent = new RadzenText();
+        validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 2000);
     }
 
     public void Dispose()
@@ -176,6 +185,76 @@
             });
     }
 
+    private void KeyUpEventHandler(KeyboardEvent e)
+    {
+        validateSingleAction.PerformAction();
+    }
+
+    private async Task<(List<MonacoValidationError>?, XmlDocument?)> ValidateXml(string xml)
+    {
+        await ClearMarkersAndValidationErrors();
+
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            ErrorDescription = "Input XML cannot be empty.";
+            return (new List<MonacoValidationError>(), null);
+        }
+
+        var xmlDocument = new XmlDocument();
+
+        try
+        {
+            var settings = new XmlReaderSettings();
+            if (xmlSchema != null)
+            {
+                settings.Schemas.Add(xmlSchema);
+                settings.ValidationType = ValidationType.Schema;
+            }
+
+            settings.ValidationEventHandler += (sender, e) => ValidationErrorHandler(sender, e);
+
+            using var reader = XmlReader.Create(new StringReader(xml), settings);
+            xmlDocument.Load(reader);
+
+            if (ValidationErrors?.Any() ?? false)
+            {
+                await HighlightErrors(ValidationErrors);
+                ShowInfoNotification("Invalid XML!", error: true);
+
+                var errors = GetErrorsString(ValidationErrors);
+                ErrorDescription = $"XML Validation Errors: {errors}";
+            }
+
+            return (ValidationErrors, xmlDocument);
+        }
+        catch (System.Xml.XmlException e)
+        {
+            ValidationErrors.Add(new MonacoValidationError
+                {
+                    Message = e.Message,
+                    StartLineNumber = e.LineNumber,
+                    StartColumn = e.LinePosition,
+                    EndLineNumber = e.LineNumber,
+                    EndColumn = e.LinePosition + 1
+                });
+
+            if (ValidationErrors?.Any() ?? false)
+            {
+                await HighlightErrors(ValidationErrors);
+                ShowInfoNotification("Invalid XML!", error: true);
+
+                var errors = GetErrorsString(ValidationErrors);
+                ErrorDescription = $"XML Validation Errors: {errors}";
+            }
+
+            return (ValidationErrors, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, null);
+        }
+    }
+
     private async Task FormatXml()
     {
         try
@@ -186,94 +265,21 @@
 
             if (string.IsNullOrWhiteSpace(InputXml))
             {
-                OutputXml = "Input XML cannot be empty.";
+                ErrorDescription = "Input XML cannot be empty.";
                 return;
             }
 
-            var xmlDocument = new XmlDocument();
+            var result = await ValidateXml(InputXml);
+            var validationErrors = result.Item1;
+            var xmlDocument = result.Item2;
 
-            if (xmlSchema != null)
+            if (validationErrors?.Any() ?? false)
+                return;
+
+            if (xmlDocument == null)
             {
-                try
-                {
-                    var settings = new XmlReaderSettings();
-                    settings.Schemas.Add(xmlSchema);
-                    settings.ValidationType = ValidationType.Schema;
-
-                    settings.ValidationEventHandler += (sender, e) => ValidationErrorHandler(sender, e);
-
-                    using var reader = XmlReader.Create(new StringReader(InputXml), settings);
-                    xmlDocument.Load(reader);
-
-                    if (ValidationErrors.Any())
-                    {
-                        await HighlightErrors(ValidationErrors);
-
-                        ShowInfoNotification("Invalid XML!", error: true);
-
-                        OutputXml = $"XML Validation Error. See the Input Field for additional information.";
-                        return;
-                    }
-                }
-                catch (System.Xml.XmlException e)
-                {
-                    ShowInfoNotification("Invalid XML!", error: true);
-
-                    ValidationErrors.Add(new MonacoValidationError
-                        {
-                            Message = e.Message,
-                            StartLineNumber = e.LineNumber,
-                            StartColumn = e.LinePosition,
-                            EndLineNumber = e.LineNumber,
-                            EndColumn = e.LinePosition + 1
-                        });
-                    await HighlightErrors(ValidationErrors);
-
-                    OutputXml = $"XML Validation Error: {e.Message}";
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    if (ValidationErrors.Any())
-                    {
-                        await HighlightErrors(ValidationErrors);
-                    }
-                    ShowInfoNotification("Invalid XML!", error: true);
-
-                    OutputXml = $"XML Validation Error: {ex.Message}";
-                    return;
-                }
-            }
-            else
-            {
-                try
-                {
-                    xmlDocument.LoadXml(InputXml);
-                }
-                catch (System.Xml.XmlException e)
-                {
-                    ShowInfoNotification("Invalid XML!", error: true);
-
-                    ValidationErrors.Add(new MonacoValidationError
-                        {
-                            Message = e.Message,
-                            StartLineNumber = e.LineNumber,
-                            StartColumn = e.LinePosition,
-                            EndLineNumber = e.LineNumber,
-                            EndColumn = e.LinePosition + 1
-                        });
-                    await HighlightErrors(ValidationErrors);
-
-                    OutputXml = $"XML Validation Error: {e.Message}";
-                    return;
-                }
-                catch (Exception e)
-                {
-                    ShowInfoNotification("Invalid XML!", error: true);
-
-                    OutputXml = $"XML Validation Error: {e.Message}";
-                    return;
-                }
+                ShowInfoNotification("Unhandled exception!", error: false);
+                return;
             }
 
             ShowInfoNotification("Valid XML!", error: false);
@@ -305,12 +311,21 @@
         }
         catch (XmlException ex)
         {
-            OutputXml = $"XML Validation Error: {ex.Message}";
+            ErrorDescription = $"XML Validation Error: {ex.Message}";
         }
         catch (Exception ex)
         {
-            OutputXml = $"Error: {ex.Message}";
+            ErrorDescription = $"Error: {ex.Message}";
         }
+    }
+
+    private string GetErrorsString(List<MonacoValidationError> errors)
+    {
+        var stringBuilder = new StringBuilder();
+        foreach (var error in errors)
+            stringBuilder.AppendLine(error.Message);
+
+        return stringBuilder.ToString();
     }
 
     private async Task HighlightErrors(List<MonacoValidationError> errors)
@@ -331,6 +346,7 @@
     {
         await BlazorMonaco.Editor.Global.SetModelMarkers(JSRuntime, await codeEditor?.GetModel(), "default", new List<MarkerData>());
         ValidationErrors.Clear();
+        ErrorDescription = string.Empty;
     }
 
     private async void CopyToClipboard()
@@ -368,11 +384,11 @@
     }
 
     [JSInvokable]
-    public async Task HandleXsdFileDrop(string fileContents)
+    public async Task HandleXsdFileDrop(string fileContents, string fileName)
     {
         try
         {
-            await HandleXmlSchemaSet(fileContents);
+            await HandleXmlSchemaSet(fileContents, fileName);
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('xsdFileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('xsdFileInputContainerInstruction').textContent = '{DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
 
@@ -389,7 +405,7 @@
     }
 
     [JSInvokable]
-    public async Task HandleFileDrop(string fileContents)
+    public async Task HandleFileDrop(string fileContents, string fileName)
     {
         try
         {
@@ -410,6 +426,7 @@
     }
 
     private XmlSchema? xmlSchema;
+    private string? xmlSchemaFileName;
 
     private async Task HandleXsdFileSelected(InputFileChangeEventArgs e)
     {
@@ -419,7 +436,8 @@
             {
                 var fileContentStream = new StreamContent(e.File.OpenReadStream());
                 var fileContents = await fileContentStream.ReadAsStringAsync();
-                await HandleXmlSchemaSet(fileContents);
+                var fileName = e.File.Name;
+                await HandleXmlSchemaSet(fileContents, fileName);
             }
             catch (Exception ex)
             {
@@ -433,19 +451,21 @@
         }
     }
 
-    private async Task HandleXmlSchemaSet(string fileContents)
+    private async Task HandleXmlSchemaSet(string fileContents, string fileName)
     {
         ClearXmlSchema();
-        byte[] byteArray = Encoding.ASCII.GetBytes(fileContents);
+        var byteArray = Encoding.ASCII.GetBytes(fileContents);
         MemoryStream stream = new MemoryStream(byteArray);
 
         var schema = XmlSchema.Read(stream, XsdValidationEventHandler);
         xmlSchema = schema;
+        xmlSchemaFileName = fileName;
     }
 
     private void ClearXmlSchema()
     {
         xmlSchema = null;
+        xmlSchemaFileName = null;
     }
 
     private void XsdValidationEventHandler(object sender, ValidationEventArgs e)
@@ -460,7 +480,7 @@
             {
                 var fileContentStream = new StreamContent(e.File.OpenReadStream());
                 var fileContents = await fileContentStream.ReadAsStringAsync();
-                await codeEditor?.SetValue(fileContents);
+                await codeEditor?.SetValue(fileContents ?? string.Empty);
             }
             catch (Exception ex)
             {
@@ -474,55 +494,40 @@
         }
     }
 
-    private static async Task<List<MonacoValidationError>> ValidateXml(XmlDocument xmlDoc, XmlSchema schema)
-    {
-
-        var validationErrors = new List<MonacoValidationError>();
-
-        if (xmlDoc == null || schema == null)
-        {
-            return validationErrors;
-        }
-        var schemas = new XmlSchemaSet();
-        
-        schemas.Add(schema);
-
-        
-        
-        var settings = new XmlReaderSettings();
-        settings.Schemas.Add(schemas);
-        settings.ValidationType = ValidationType.Schema;
-
-        settings.ValidationEventHandler += (sender, e) =>
-        {
-            Console.WriteLine($"Validation error: {e.Message}");
-            if (e.Exception != null)
-            {
-                Console.WriteLine($"Line: {e.Exception.LineNumber}, Position: {e.Exception.LinePosition}");
-            }
-        };
-        
-        
-        
-        
-
-        xmlDoc.Schemas.Add(schemas);
-        xmlDoc.Validate((sender, e) =>
-        {
-            validationErrors.Add(new MonacoValidationError
-                {
-                    Message = e.Message,
-                    StartLineNumber = e.Exception.LineNumber,
-                    StartColumn = e.Exception.LinePosition,
-                    EndLineNumber = e.Exception.LineNumber,
-                    EndColumn = e.Exception.LinePosition + 1
-                });
-        });
-        return validationErrors;
-    }
-
     private class FileUpload
     {
         public Stream Stream { get; set; } = default!;
+    }
+    public class DelayedSingleAction
+    {
+        private readonly Action _action;
+        private readonly long _millisecondsDelay;
+        private long _syncValue = 1;
+        public DelayedSingleAction(Action action, long millisecondsDelay)
+        {
+            _action = action;
+            _millisecondsDelay = millisecondsDelay;
+        }
+
+        private Task _waitingTask = null;
+        private void DoActionAndClearTask(Task _)
+        {
+            Interlocked.Exchange(ref _syncValue, 1);
+            _action();
+        }
+
+        public void PerformAction()
+        {
+            if (Interlocked.Exchange(ref _syncValue, 0) == 1)
+            {
+                _waitingTask = Task.Delay(TimeSpan.FromMilliseconds(_millisecondsDelay))
+                                   .ContinueWith(DoActionAndClearTask);
+            }
+        }
+
+        public Task Complete()
+        {
+            return _waitingTask ?? Task.FromResult(0);
+        }
     }
 }

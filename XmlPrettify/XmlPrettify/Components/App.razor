@@ -35,7 +35,8 @@
             const file = event.dataTransfer.files[0];
             if (file) {
                 const text = await file.text();
-                dotNetObjectReference.invokeMethodAsync('HandleFileDrop', text);
+                const name = await file.name;
+                dotNetObjectReference.invokeMethodAsync('HandleFileDrop', text, name);
             }
         }
 
@@ -44,7 +45,8 @@
             const file = event.dataTransfer.files[0];
             if (file) {
                 const text = await file.text();
-                dotNetObjectReference.invokeMethodAsync('HandleXsdFileDrop', text);
+                const name = await file.name;
+                dotNetObjectReference.invokeMethodAsync('HandleXsdFileDrop', text, name);
             }
         }
 
