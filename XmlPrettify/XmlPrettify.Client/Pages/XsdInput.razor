@@ -1,0 +1,139 @@
+﻿@using System.Xml.Schema;
+@using System.Text
+
+@inject IJSRuntime JSRuntime
+@inject Radzen.NotificationService NotificationService
+@rendermode InteractiveServer
+
+<div id="dragAndDropXsdElement" style="border: 2px dashed #ccc; color: gray; border-radius: 4px; padding: 1rem; align-items:center; text-align: center; background-color: #f9f9f9; width: 100%;"
+        ondragover="event.preventDefault();"
+        ondrop="handleXsdFileDrop(event)">
+    <div id="xsdFileInputContainer" style="width: 100%; align-content:center; align-items:center; text-align: center;">
+        <div id="xsdFileInputContainerInstruction">
+            @if (XmlSchema == null)
+            {
+                @DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT
+            }
+            else
+            {
+                @DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED
+            }
+
+        </div>
+        <label for="input-xsd" class="input-label">Select file</label>
+        <InputFile id="input-xsd" class="sr-only" OnChange="HandleXsdFileSelected" />
+        @if (XmlSchema != null)
+        {
+            <label for="clear_schema" class="input-label">Clear XSD</label>
+            <button id="clear_schema" class="sr-only" @onclick=ClearXmlSchema />
+        }
+    </div>
+</div>
+
+@code {
+    public XmlSchema? XmlSchema;
+    public string? XmlSchemaFileName;
+
+    public const string DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT = "Drop your XSD file here if you want to use it for validation OR";
+    public string DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED => $"Selected XSD: {XmlSchemaFileName}";
+
+    private DotNetObjectReference<XsdInput>? objectReference;
+
+    [Parameter]
+    public EventCallback OnSchemaLoaded { get; set; }
+
+    [Parameter]
+    public EventCallback OnSchemaUnloaded { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        objectReference = DotNetObjectReference.Create(this);
+    }
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JSRuntime.InvokeVoidAsync("registerDotNetObject_Schema", objectReference);
+    }
+
+    protected async Task SchemaLoaded(EventArgs e)
+    {
+        if (OnSchemaLoaded.HasDelegate)
+            await OnSchemaLoaded.InvokeAsync();
+    }
+
+    protected async Task SchemaUnloaded(EventArgs e)
+    {
+        if (OnSchemaUnloaded.HasDelegate)
+            await OnSchemaUnloaded.InvokeAsync();
+    }
+
+    private async Task HandleXmlSchemaSet(string fileContents, string fileName)
+    {
+        await ClearXmlSchema();
+        var byteArray = Encoding.ASCII.GetBytes(fileContents);
+        MemoryStream stream = new MemoryStream(byteArray);
+
+        var schema = XmlSchema.Read(stream, XsdValidationEventHandler);
+        XmlSchema = schema;
+        XmlSchemaFileName = fileName;
+        await SchemaLoaded(new EventArgs());
+    }
+
+    private async Task ClearXmlSchema()
+    {
+        XmlSchema = null;
+        XmlSchemaFileName = null;
+        await SchemaUnloaded(new EventArgs());
+    }
+
+    private async Task HandleXsdFileSelected(InputFileChangeEventArgs e)
+    {
+        if (e.File is not null)
+        {
+            try
+            {
+                var fileContentStream = new StreamContent(e.File.OpenReadStream());
+                var fileContents = await fileContentStream.ReadAsStringAsync();
+                var fileName = e.File.Name;
+                await HandleXmlSchemaSet(fileContents, fileName);
+            }
+            catch (Exception ex)
+            {
+                NotificationService.Notify(new NotificationMessage
+                    {
+                        Severity = NotificationSeverity.Error,
+                        Summary = "Error",
+                        Detail = $"Exception: {ex.Message}"
+                    });
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleXsdFileDrop(string fileContents, string fileName)
+    {
+        try
+        {
+            await HandleXmlSchemaSet(fileContents, fileName);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+                {
+                    Severity = NotificationSeverity.Error,
+                    Summary = "Error",
+                    Detail = $"Failed to read file: {ex.Message}"
+                });
+        }
+    }
+
+    private void XsdValidationEventHandler(object sender, ValidationEventArgs e)
+    {
+    }
+
+
+}

@@ -12,10 +12,6 @@
 @inject IJSRuntime JSRuntime
 @inject Radzen.NotificationService NotificationService
 
-<HeadContent>
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8316836543955335"
-            crossorigin="anonymous"></script>
-</HeadContent>
 <section>
     <h1 style="font-size:x-large; font-weight:bold; color: #004085;">XML Formatter and Validator</h1>
     <p style="color: #004085">Use this tool to validate and format your XML files easily. Simply paste your XML content or upload a file, select formatting options, and view the results instantly.</p>
@@ -27,7 +23,7 @@
             <div style="border: 1px solid #ccc; border-radius: 3px; padding: 3px; height: 300px;">
                 <StandaloneCodeEditor @ref="codeEditor" OnKeyUp="KeyUpEventHandler" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
             </div>
-            <RadzenText @ref="ErrorDescriptionComponent" style="color: red" Text="@ErrorDescription"></RadzenText>
+            <RadzenText style="color: red" Text="@ErrorDescription"></RadzenText>
 
         </div>
 
@@ -46,30 +42,7 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <div id="dragAndDropXsdElement" style="border: 2px dashed #ccc; color: gray; border-radius: 4px; padding: 1rem; align-items:center; text-align: center; background-color: #f9f9f9; width: 100%;"
-                 ondragover="event.preventDefault();"
-                 ondrop="handleXsdFileDrop(event)">
-                <div id="xsdFileInputContainer" style="width: 100%; align-content:center; align-items:center; text-align: center;">
-                    <div id="xsdFileInputContainerInstruction">
-                        @if (xmlSchema == null)
-                        {
-                            @DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT
-                        }
-                        else
-                        {
-                            @DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED
-                        }
-
-                    </div>
-                    <label for="input-xsd" class="input-label">Select file</label>
-                    <InputFile id="input-xsd" class="sr-only" OnChange="HandleXsdFileSelected" />
-                    @if (xmlSchema != null)
-                    {
-                        <label for="clear_schema" class="input-label">Clear XSD</label>
-                        <button id="clear_schema" class="sr-only" @onclick=ClearXmlSchema />
-                    }
-                </div>
-            </div>
+            <XsdInput @ref=xsdInput OnSchemaLoaded="SchemaLoaded" OnSchemaUnloaded="SchemaUnloaded"></XsdInput>
         </div>
 
         <hr style="border: none; border-top: 1px solid #ccc; margin: 1rem 0;" />
@@ -136,8 +109,7 @@
     private bool OmitXmlDeclaration { get; set; } = false;
     private bool NewLineOnAttributes { get; set; } = false;
 
-    public const string DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT = "Drop your XSD file here if you want to use it for validation OR";
-    public string DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED => $"Selected XSD: {xmlSchemaFileName}";
+    private XsdInput? xsdInput;
 
     public const string DRAG_AND_DROP_INSTRUCTION_DEFAULT = "Drop your XML file here OR";
     public const string DRAG_AND_DROP_INSTRUCTION_DRAGGED = "OK!";
@@ -147,7 +119,6 @@
 
     private StandaloneCodeEditor? codeEditor;
     private DotNetObjectReference<XmlValidator>? objectReference;
-    private RadzenText ErrorDescriptionComponent;
 
     private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor editor)
     {
@@ -165,8 +136,23 @@
     {
         objectReference = DotNetObjectReference.Create(this);
         codeEditor = new StandaloneCodeEditor();
-        ErrorDescriptionComponent = new RadzenText();
         validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 1000);
+        xsdInput = new XsdInput();
+    }
+
+    private void SchemaLoaded()
+    {
+        validateSingleAction.PerformAction();
+    }
+
+    private void SchemaUnloaded()
+    {
+        validateSingleAction.PerformAction();
+    }
+
+    private void KeyUpEventHandler(KeyboardEvent e)
+    {
+        validateSingleAction.PerformAction();
     }
 
     public void Dispose()
@@ -194,11 +180,6 @@
             });
     }
 
-    private void KeyUpEventHandler(KeyboardEvent e)
-    {
-        validateSingleAction.PerformAction();
-    }
-
     private async Task<(List<MonacoValidationError>?, XmlDocument?)> ValidateXml(string xml)
     {
         await ClearMarkersAndValidationErrors();
@@ -214,9 +195,9 @@
         try
         {
             var settings = new XmlReaderSettings();
-            if (xmlSchema != null)
+            if (xsdInput?.XmlSchema != null)
             {
-                settings.Schemas.Add(xmlSchema);
+                settings.Schemas.Add(xsdInput.XmlSchema);
                 settings.ValidationType = ValidationType.Schema;
             }
 
@@ -392,25 +373,6 @@
         public override Encoding Encoding => _encoding;
     }
 
-    [JSInvokable]
-    public async Task HandleXsdFileDrop(string fileContents, string fileName)
-    {
-        try
-        {
-            await HandleXmlSchemaSet(fileContents, fileName);
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            NotificationService.Notify(new NotificationMessage
-                {
-                    Severity = NotificationSeverity.Error,
-                    Summary = "Error",
-                    Detail = $"Failed to read file: {ex.Message}"
-                });
-        }
-    }
-
     private async Task SetCodeEditorValue(string fileContents)
     {
         await codeEditor?.SetValue(fileContents);
@@ -425,7 +387,6 @@
             await SetCodeEditorValue(fileContents);
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DRAGGED}'; setTimeout(() => document.getElementById('fileInputContainerInstruction').textContent = '{DRAG_AND_DROP_INSTRUCTION_DEFAULT}', 2000);");
             StateHasChanged();
-
         }
         catch (Exception ex)
         {
@@ -436,55 +397,6 @@
                 Detail = $"Failed to read file: {ex.Message}"
             });
         }
-    }
-
-    private XmlSchema? xmlSchema;
-    private string? xmlSchemaFileName;
-
-    private async Task HandleXsdFileSelected(InputFileChangeEventArgs e)
-    {
-        if (e.File is not null)
-        {
-            try
-            {
-                var fileContentStream = new StreamContent(e.File.OpenReadStream());
-                var fileContents = await fileContentStream.ReadAsStringAsync();
-                var fileName = e.File.Name;
-                await HandleXmlSchemaSet(fileContents, fileName);
-            }
-            catch (Exception ex)
-            {
-                NotificationService.Notify(new NotificationMessage
-                    {
-                        Severity = NotificationSeverity.Error,
-                        Summary = "Error",
-                        Detail = $"Exception: {ex.Message}"
-                    });
-            }
-        }
-    }
-
-    private async Task HandleXmlSchemaSet(string fileContents, string fileName)
-    {
-        ClearXmlSchema();
-        var byteArray = Encoding.ASCII.GetBytes(fileContents);
-        MemoryStream stream = new MemoryStream(byteArray);
-
-        var schema = XmlSchema.Read(stream, XsdValidationEventHandler);
-        xmlSchema = schema;
-        xmlSchemaFileName = fileName;
-        validateSingleAction.PerformAction();
-    }
-
-    private void ClearXmlSchema()
-    {
-        xmlSchema = null;
-        xmlSchemaFileName = null;
-        validateSingleAction.PerformAction();
-    }
-
-    private void XsdValidationEventHandler(object sender, ValidationEventArgs e)
-    {
     }
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
@@ -509,10 +421,5 @@
                     });
             }
         }
-    }
-
-    private class FileUpload
-    {
-        public Stream Stream { get; set; } = default!;
     }
 }

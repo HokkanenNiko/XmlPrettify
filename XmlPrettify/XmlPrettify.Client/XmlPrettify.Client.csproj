@@ -14,4 +14,12 @@
     <PackageReference Include="Radzen.Blazor" Version="5.7.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <UpToDateCheckInput Remove="Pages\XsdInput.razor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <_ContentIncludedByDefault Remove="Pages\XsdInput.razor" />
+  </ItemGroup>
+
 </Project>
