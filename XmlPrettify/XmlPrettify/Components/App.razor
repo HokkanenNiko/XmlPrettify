@@ -39,13 +39,21 @@
             }
         }
 
+    </script>
+    <script>
+        let dotNetObjectReference_Schema;
+
+        function registerDotNetObject_Schema(objRef) {
+            dotNetObjectReference_Schema = objRef;
+        }
+
         async function handleXsdFileDrop(event) {
             event.preventDefault();
             const file = event.dataTransfer.files[0];
             if (file) {
                 const text = await file.text();
                 const name = await file.name;
-                dotNetObjectReference.invokeMethodAsync('HandleXsdFileDrop', text, name);
+                dotNetObjectReference_Schema.invokeMethodAsync('HandleXsdFileDrop', text, name);
             }
         }
 
