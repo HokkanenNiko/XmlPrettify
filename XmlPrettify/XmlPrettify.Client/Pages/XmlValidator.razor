@@ -6,6 +6,9 @@
 @using System.Text
 @using System.Text.Json
 @using System.Xml.Schema
+@using System.Text.RegularExpressions
+@using System.Collections
+@using System.Diagnostics
 @using XmlPrettify.Client.Models
 @using XmlPrettify.Components.Models;
 @rendermode InteractiveServer
@@ -21,7 +24,7 @@
         <div style="margin-bottom: 1rem;">
             <RadzenLabel Text="Input XML" />
             <div style="border: 1px solid #ccc; border-radius: 3px; padding: 3px; height: 300px;">
-                <StandaloneCodeEditor @ref="codeEditor" OnKeyUp="KeyUpEventHandler" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
+                <StandaloneCodeEditor @ref="codeEditor" OnMouseUp="OnClick" OnKeyUp="KeyUpEventHandler" Id="code-editor" CssClass="my-editor-class" ConstructionOptions="EditorConstructionOptions" />
             </div>
             <RadzenText style="color: red" Text="@ErrorDescription"></RadzenText>
 
@@ -132,12 +135,88 @@
 
     DelayedSingleAction validateSingleAction;
 
-    protected override void OnInitialized()
+    public async Task OnClick(EditorMouseEvent e)
+    {
+        if (!xsdInput?.UseSchemaForSuggestions ?? true || !e.Event.LeftButton)
+            return;
+
+        await SetSuggestions();
+    }
+
+    protected override async void OnInitialized()
     {
         objectReference = DotNetObjectReference.Create(this);
         codeEditor = new StandaloneCodeEditor();
+        await BlazorMonaco.Languages.Global.RegisterCompletionItemProvider(JSRuntime, "xml", GetXmlCompletionProvider);
         validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 1000);
-        xsdInput = new XsdInput();
+    }
+
+    object suggestionsLock = new object();
+    
+    private string? currentSuggestionsBasedOn = null;
+    CompletionList? currentSuggestions;
+    CompletionList? CurrentSuggestions { get { lock (suggestionsLock) { return currentSuggestions; } } set { lock (suggestionsLock) { currentSuggestions = value; } } }
+
+    public async Task SetSuggestions()
+    {
+        var suggestions = await GetSuggestions();
+        if (suggestions?.Suggestions?.Any() ?? false)
+        {
+            foreach (var suggestion in suggestions.Suggestions)
+            {
+                Debug.WriteLine($"suggestion: {suggestion}");
+            }
+        }
+        CurrentSuggestions = suggestions?.Suggestions?.Any() ?? false ? suggestions : new CompletionList() { Suggestions = new List<CompletionItem>()};
+    }
+
+    public CompletionList GetXmlCompletionProvider(string modelUri, Position position, CompletionContext context)
+    {
+        return xsdInput?.UseSchemaForSuggestions ?? false ? CurrentSuggestions : new CompletionList()
+        {
+            Suggestions = new List<CompletionItem>()
+        };
+    }
+
+    public async Task<string>? GetParentElementAtCursor()
+    {
+        var editorContent = await codeEditor.GetValue();
+        var lines = editorContent.Split('\n');
+
+        var cursorPosition = await codeEditor.GetPosition();
+
+        int cursorOffset = 0;
+        for (int i = 0; i < cursorPosition.LineNumber - 1; i++)
+        {
+            cursorOffset += lines[i].Length + 1;
+        }
+        cursorOffset += cursorPosition.Column - 1;
+
+        var textBeforeCursor = editorContent.Substring(0, cursorOffset);
+
+        var elementStack = new Stack<string>();
+
+        var matches = Regex.Matches(textBeforeCursor, @"<(/?[\w:.-]+)(?:\s[^>]*)?>");
+
+        foreach (Match match in matches)
+        {
+            var tagName = match.Groups[1].Value;
+
+            if (!tagName.StartsWith("/"))
+            {
+                // Opening tag: Push onto stack
+                elementStack.Push(tagName);
+            }
+            else
+            {
+                // Closing tag: Pop from stack if it matches
+                if (elementStack.Count > 0 && elementStack.Peek() == tagName.TrimStart('/'))
+                    elementStack.Pop();
+            }
+        }
+
+        return elementStack.Count > 0 ? elementStack.Peek() : null;
+
     }
 
     private void SchemaLoaded()
@@ -150,9 +229,64 @@
         validateSingleAction.PerformAction();
     }
 
-    private void KeyUpEventHandler(KeyboardEvent e)
+    private readonly CompletionList EmptyList = new CompletionList();
+
+    private async Task<CompletionList> GetSuggestions()
+    {
+        var parentElement = await GetParentElementAtCursor();
+
+        if (string.IsNullOrEmpty(parentElement))
+            return EmptyList;
+
+        if (currentSuggestionsBasedOn == parentElement)
+            return CurrentSuggestions;
+
+        currentSuggestionsBasedOn = parentElement;
+        var childElements = xsdInput.GetChildElements(parentElement);
+
+        if (childElements == null || !childElements.Any())
+            return EmptyList;
+
+        var completionItems = new List<CompletionItem>();
+
+        foreach (var suggestion in childElements)
+        {
+            completionItems.Add(
+                new CompletionItem()
+                    {
+                        LabelAsString = suggestion.Suggestion,
+                        Kind = CompletionItemKind.Class,
+                        Detail = suggestion.SchemaType,
+                        SortText = suggestion.SortOrderString,
+                        DocumentationAsString = suggestion.Documentation,
+                        InsertText = $"<{suggestion.Suggestion}></{suggestion.Suggestion}>"
+                    }
+            );
+        }
+        return new CompletionList { Suggestions = completionItems };
+    }
+
+    private async void KeyUpEventHandler(KeyboardEvent e)
     {
         validateSingleAction.PerformAction();
+
+        if ((xsdInput?.UseSchemaForSuggestions ?? false) && KeyShouldLaunchSuggestionsUpdate(e.KeyCode))
+            await SetSuggestions();
+    }
+
+    private bool KeyShouldLaunchSuggestionsUpdate(KeyCode key)
+    {
+        switch (key)
+        {
+            case (KeyCode.DownArrow):
+            case (KeyCode.UpArrow):
+            case (KeyCode.LeftArrow):
+            case (KeyCode.RightArrow):
+            case (KeyCode.Enter):
+                return true;
+            default:
+                return false;
+        }
     }
 
     public void Dispose()
@@ -329,12 +463,26 @@
                 EndLineNumber = error.EndLineNumber,
                 EndColumn = error.EndColumn
             }).ToList();
-        await BlazorMonaco.Editor.Global.SetModelMarkers(JSRuntime, await codeEditor?.GetModel(), "default", markers);
+        try
+        {
+            await BlazorMonaco.Editor.Global.SetModelMarkers(JSRuntime, await codeEditor?.GetModel(), "default", markers);
+        }
+        catch (TaskCanceledException)
+        {
+            // OK
+        }
     }
 
     private async Task ClearMarkersAndValidationErrors()
     {
-        await BlazorMonaco.Editor.Global.SetModelMarkers(JSRuntime, await codeEditor?.GetModel(), "default", new List<MarkerData>());
+        try
+        {
+            await BlazorMonaco.Editor.Global.SetModelMarkers(JSRuntime, await codeEditor?.GetModel(), "default", new List<MarkerData>());
+        }
+        catch (TaskCanceledException)
+        {
+            // OK
+        }
         ValidationErrors.Clear();
         ErrorDescription = string.Empty;
     }

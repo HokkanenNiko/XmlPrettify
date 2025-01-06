@@ -1,6 +1,12 @@
 ﻿@using System.Xml.Schema;
 @using System.Text
+@using System.Diagnostics
+@using System.Xml.Linq
+@using System.Xml
+@using XmlPrettify.Client.Helpers
+@using XmlPrettify.Client.Models
 
+@inject TooltipService tooltipService
 @inject IJSRuntime JSRuntime
 @inject Radzen.NotificationService NotificationService
 @rendermode InteractiveServer
@@ -26,13 +32,23 @@
         {
             <label for="clear_schema" class="input-label">Clear XSD</label>
             <button id="clear_schema" class="sr-only" @onclick=ClearXmlSchema />
+            <div style="align-items: unsafe center; justify-content:center; display:flex; margin:10px">
+                <RadzenCheckBox @bind-Value="UseSchemaForSuggestions" Style="margin-right: 0.5rem;" />
+                <label>Use schema for suggestions</label>
+                <RadzenIcon Icon="help" MouseEnter="@(args => ShowTooltip(args) )" style="margin:0px 0px 0px 10px" />
+            </div>
         }
+
     </div>
 </div>
 
 @code {
     public XmlSchema? XmlSchema;
     public string? XmlSchemaFileName;
+    private XDocument? XmlSchemaXDoc;
+
+    public bool UseSchemaForSuggestions { get; set; } = true;
+
 
     public const string DRAG_AND_DROP_XSD_INSTRUCTION_DEFAULT = "Drop your XSD file here if you want to use it for validation OR";
     public string DRAG_AND_DROP_XSD_INSTRUCTION_SELECTED => $"Selected XSD: {XmlSchemaFileName}";
@@ -45,6 +61,7 @@
     [Parameter]
     public EventCallback OnSchemaUnloaded { get; set; }
 
+    void ShowTooltip(ElementReference elementReference, TooltipOptions options = null) => tooltipService.Open(elementReference, "Ctrl + Space for suggestions.", options);
 
     protected override void OnInitialized()
     {
@@ -70,6 +87,16 @@
             await OnSchemaUnloaded.InvokeAsync();
     }
 
+    public List<XmlSuggestion>? GetChildElements(string elementName)
+    {
+        if (XmlSchemaXDoc == null)
+        {
+            return null;
+        }
+        var childElements = XmlSchemaHelper.GetChildElements(XmlSchemaXDoc, elementName);
+        return childElements;
+    }
+
     private async Task HandleXmlSchemaSet(string fileContents, string fileName)
     {
         await ClearXmlSchema();
@@ -77,8 +104,10 @@
         MemoryStream stream = new MemoryStream(byteArray);
 
         var schema = XmlSchema.Read(stream, XsdValidationEventHandler);
+        var xsdDoc = XDocument.Parse(fileContents);
         XmlSchema = schema;
         XmlSchemaFileName = fileName;
+        XmlSchemaXDoc = xsdDoc;
         await SchemaLoaded(new EventArgs());
     }
 
@@ -86,6 +115,7 @@
     {
         XmlSchema = null;
         XmlSchemaFileName = null;
+        XmlSchemaXDoc = null;
         await SchemaUnloaded(new EventArgs());
     }
 
@@ -133,6 +163,7 @@
 
     private void XsdValidationEventHandler(object sender, ValidationEventArgs e)
     {
+        Debug.WriteLine(e.Message);
     }
 
 
