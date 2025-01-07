@@ -1,5 +1,4 @@
-﻿@page "/"
-@using System.Xml
+﻿@using System.Xml
 @using System.Xml.Linq
 @using static System.Xml.Formatting
 @using Radzen.Blazor
@@ -147,8 +146,17 @@
     {
         objectReference = DotNetObjectReference.Create(this);
         codeEditor = new StandaloneCodeEditor();
-        await BlazorMonaco.Languages.Global.RegisterCompletionItemProvider(JSRuntime, "xml", GetXmlCompletionProvider);
         validateSingleAction = new DelayedSingleAction(async () => await ValidateXml(await codeEditor.GetValue()), 1000);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("registerDotNetObject", objectReference);
+            await BlazorMonaco.Languages.Global.RegisterCompletionItemProvider(JSRuntime, "xml", GetXmlCompletionProvider);
+            StateHasChanged();
+        }
     }
 
     object suggestionsLock = new object();
@@ -292,12 +300,6 @@
     public void Dispose()
     {
         objectReference?.Dispose();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-            await JSRuntime.InvokeVoidAsync("registerDotNetObject", objectReference);
     }
 
     private List<MonacoValidationError> ValidationErrors { get; set; } = new List<MonacoValidationError>();

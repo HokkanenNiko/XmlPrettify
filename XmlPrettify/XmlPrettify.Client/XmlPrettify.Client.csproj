@@ -19,7 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <_ContentIncludedByDefault Remove="Pages\MainPage.razor" />
     <_ContentIncludedByDefault Remove="Pages\XsdInput.razor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <UpToDateCheckInput Remove="Pages\MainPage.razor" />
   </ItemGroup>
 
 </Project>

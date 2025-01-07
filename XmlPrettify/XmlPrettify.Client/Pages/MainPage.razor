@@ -1,0 +1,12 @@
+﻿@rendermode InteractiveServer
+@page "/"
+
+<XmlValidator @ref="validator"></XmlValidator>
+
+@code {
+    XmlValidator? validator;
+    protected override void OnInitialized()
+    {
+        validator = new XmlValidator();
+    }
+}
